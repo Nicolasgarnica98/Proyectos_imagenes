@@ -39,19 +39,24 @@ percentil_30 = np.percentile(imagen_monedas_grises.flatten(),30)
 umbrales = [percentil_30,otsu]
 mascara_umbrales = np.digitize(imagen_monedas_grises, bins=umbrales)
 
+#Se cargan los datos ed la anotacion para las monedas
 dt = loadmat(os.path.join('groundtruth.mat'))
 imag_anotacion = rgb2gray(dt['gt'])
 
+#Se crea la funcion de Jaccard que cuenta la cantidad de datos en interseccion y la divide sobre la cantidad de elementos de la unión
+#de ambos grupos (Anotacion y mascara)
 def jaccard(anotacion, mascara):
     interseccion = np.logical_and(anotacion,mascara)
     union = np.logical_or(anotacion,mascara)
     return interseccion.sum()/union.sum()
 
+#Aplico la funcion para comparar las mascaras creadas con las anotaciones
 jaccard_otsu = jaccard(imag_anotacion,mascara_otsu)
 jaccard_p80 = jaccard(imag_anotacion,mascara_perc80)
 jaccard_umb = jaccard(imag_anotacion,mascara_umb)
 jaccard_umbrales = jaccard(imag_anotacion,mascara_umbrales)
 
+#Indices de Jaccard para cada segmentación
 print('Jaccar Otsu: ',jaccard_otsu)
 print('Jaccard percetil 80: ',jaccard_p80)
 print('Jaccard umbral aleatorio: ',jaccard_umb)
@@ -62,12 +67,14 @@ print('Jaccard umbrales: ',jaccard_umbrales)
 
 
 
-input("Presionar enter para continuar con el problema biomédico")
+
 #SEGUNDA PARTE PROBLEMA BIOMÉDICO
+input("Presionar enter para continuar con el problema biomédico")
 df_data = glob.glob(os.path.join('Liver_Slices\Data','*.nii.gz'))
 df_anotaciones = glob.glob(os.path.join('Liver_Slices\GroundTruth','*.nii.gz'))
 
-#Adquirir y organizar datos
+#Adquirir y organizar datos de los volumenes de la entrega pasada y los volumenes nuevos de las anotaciones
+#Se utilizan los mismos metodos de la entrega pasada.
 def organizar_paciente(df):
   aux1 = []
   aux2 = []
@@ -109,22 +116,28 @@ vol2_anotaciones = organizar_volumenes(pre_vol2_anotaciones)
 vol3_anotaciones = organizar_volumenes(pre_vol3_anotaciones)
 
 #Paciente 1, se escogieron los cortes 32, 54 y 21
+#Se carga el corte seleccionado
 img1_p1 = vol1[32].get_fdata()
+#Se crean las mascaras para dicho corte
 mascara_img1_p1_otsu = img1_p1 > threshold_otsu(img1_p1)
 mascara_img1_p1_p80 = img1_p1 > np.percentile(img1_p1.flatten(),80)
 mascara_img1_p1_umb = img1_p1 > np.percentile(img1_p1.flatten(),30)
 mascara_img1_p1_umbrales = np.digitize(img1_p1, bins=umbrales)
+#Se aplican las mascaras para obtener las segmentaciones
 seg_img1_p1_otsu = img1_p1*mascara_img1_p1_otsu
 seg_img1_p1_p80 = img1_p1*mascara_img1_p1_p80
 seg_img1_p1_umb = img1_p1*mascara_img1_p1_umb
 seg_img1_p1_umbrales = img1_p1*mascara_img1_p1_umbrales
+#Se obtiene la anotacion correspondiente al corte seleccionado
 anot1_p1 = rgb2gray(vol1_anotaciones[32].get_fdata())
+#Se utiliza la funcion de Jaccard creada anteriormente para obtener los valores de comparacion entre cada mascara y la anotacion 
 jacc_img1_p1_otsu = jaccard(anot1_p1,mascara_img1_p1_otsu)
 jacc_img1_p1_p80 = jaccard(anot1_p1,mascara_img1_p1_p80)
 jacc_img1_p1_umb = jaccard(anot1_p1,mascara_img1_p1_umb)
 jacc_img1_p1_umbrales = jaccard(anot1_p1,mascara_img1_p1_umbrales)
+#Se imprimen los valores del indice de jaccard
 print(jacc_img1_p1_otsu,jacc_img1_p1_p80,jacc_img1_p1_umb, jacc_img1_p1_umbrales)
-
+#Se repite este proceso para las 3 imagenes de los 3 pacientes.
 
 img2_p1 = vol1[54].get_fdata()
 mascara_img2_p1_otsu = img2_p1 > threshold_otsu(img2_p1)
@@ -264,7 +277,8 @@ jacc_img3_p3_umbrales = jaccard(anot3_p3,mascara_img3_p3_umbrales)
 print(jacc_img3_p3_otsu,jacc_img3_p3_p80,jacc_img3_p3_umb, jacc_img3_p3_umbrales)
 
 
-#Gráfico
+#Gráfico de las imagenes seleccionadas: corte 32 del paciente 1 y 44 con sus respectivas segmentaciones con los metodos
+#propuestos.
 input("Press Enter to continue...")
 figx, ax1 = plt.subplots(2, 5, figsize=(20, 6))
 figx.suptitle('Segmentacion del corte 32 de los pacientes 1 y 44')
