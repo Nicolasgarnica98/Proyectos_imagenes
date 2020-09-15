@@ -72,7 +72,6 @@ print('Jaccard umbrales: ',jaccard_umbrales)
 input("Presionar enter para continuar con el problema biomédico")
 df_data = glob.glob(os.path.join('Liver_Slices\Data','*.nii.gz'))
 df_anotaciones = glob.glob(os.path.join('Liver_Slices\GroundTruth','*.nii.gz'))
-print(len(df_data))
 
 #Adquirir y organizar datos de los volumenes de la entrega pasada y los volumenes nuevos de las anotaciones
 #Se utilizan los mismos metodos de la entrega pasada.
