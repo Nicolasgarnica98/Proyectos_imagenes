@@ -1,0 +1,335 @@
+import os
+import glob
+import requests
+import cv2
+import numpy as np
+import skimage.io as io
+import matplotlib.pyplot as plt
+from skimage.color import rgb2gray
+import scipy as sp
+from skimage.color import rgb2hsv
+from skimage.color import rgb2lab
+from skimage.filters import threshold_otsu
+from skimage.filters.rank import percentile
+from scipy.io import loadmat
+from sklearn.metrics import jaccard_score as jaccard
+from sklearn.metrics import mean_squared_error
+from scipy.signal import correlate2d
+
+#Parte Teorica
+mat = os.path.join("lab_analisis\mini_proy_2", "classification_results")
+anot = loadmat(mat)
+
+def myConfusionMatrix(gts, preds):
+
+    gts = gts.flatten()    
+    preds = preds.flatten()
+    
+    fmat_sz = np.unique(gts)
+    final_mat = np.zeros((len(fmat_sz), len(fmat_sz)), dtype='int')
+    size = gts.shape
+    
+    transpose_m = np.zeros((len(fmat_sz), len(fmat_sz)), dtype='int')
+
+    # ANOTACIONES
+    for i in range(len(fmat_sz)):
+        # PREDICCIONES
+        for v in range(len(fmat_sz)):
+
+            # se revisa en la cantidad de datos que tengan las precicciones 
+            for j in range(size[0]):
+                # no centramos únicamente en la diagonal de la matriz
+                if(fmat_sz[i] == fmat_sz[v]):
+                    # si mi predicción es igual a la anotación, entonces es verdadero positivo
+                    if(gts[j] == fmat_sz[i] and gts[j] == preds[j]):
+                        # if(preds[j] == gts[j]):
+                        final_mat[i][v] += 1
+
+            
+            # ahora se seleccionan los valores que no sean verdaderos positivos para cada 
+            # clase diferente de flor:
+
+            # primero nos aseguramos que los valores de fila y de columna sean diferentes
+            if(fmat_sz[i] != fmat_sz[v]):
+                
+                # hacemos un for con el rango del tamaño de las anotaciones
+                for x in range(size[0]):
+
+                    # nos aseguramos de que los valores de las anotaciones en x y las predicciones en x
+                    # sean diferentes, y que se haga solo para la clase de flor especificada por v
+                    if(gts[x] != preds[x] and preds[x] == fmat_sz[v]):                            
+                        # se determina el valor de las predicciones y anotaciones para crear la tabla     
+                        if(fmat_sz[v] == preds[x] and gts[x] == fmat_sz[i]):
+                            final_mat[i][v] += 1
+                        
+
+    # puesto que la matriz obtenida estaba transpuesta, se organizan los datos para que quede en el orden 
+    # especificado en el informe con las Anotaciones como columnas y las predicciones como filas
+    for i in range(len(transpose_m)):
+        for j in range(len(transpose_m)):
+
+            transpose_m[j][i] = final_mat[i][j]
+
+    precision = 0
+    recall = 0
+    # para los métodos de precisión y cobertura se siguen las ecuaciones de:
+    # Precisión: TP / (TP + FP)
+    # Cobertura: TP / (TP + FN)
+
+    
+    for i in range(len(transpose_m)):
+        for j in range(len(transpose_m)):
+
+            # se elige una posición central que por facilidad por asociación con TP serán los valores de 
+            # la diagonal
+            if(i == j):
+                # Es importante notar que TP + FP es igual a la suma de la columna completa, mientras
+                # TP + FN es igual a la suma de la fila completa.
+                precision += (transpose_m[i][i] / (np.sum(transpose_m[i,:])))
+                recall += (transpose_m[i][i] / (np.sum(transpose_m[:,i])))
+
+    # se obtiene el primedio para precisión y cobertura
+    precision = precision/len(transpose_m)
+    recall = recall/(len(transpose_m))
+
+    return transpose_m, precision, recall
+
+matrix, prec, rec = myConfusionMatrix(anot['gt'], anot['prediction'])
+
+print(matrix, prec, rec)
+
+# REFERENCIAS: 
+
+# matriz de confusión múltiple -> https://towardsdatascience.com/confusion-matrix-for-your-multi-class-machine-learning-model-ff9aa3bf7826
+
+
+
+#Parte biomedica
+df_Train = glob.glob(os.path.join('Train','*.png'))
+print(df_Train)
+
+img_train = []
+for i in range(0,len(df_Train)):
+    img_train.append(io.imread(df_Train[i]))
+
+#Funcion de concatenacion de histogramas
+def MyColorHist_Código1_Código2(image, espacio):
+
+    comparacion = np.arange(256)
+    conc_hist = []
+    image_actual = image
+
+    #Condicion para el espacio RGB
+    if espacio == 'RGB':
+        #Conversion de la imagen al espacio de color
+        image_actual = image_actual
+        #obtencion de los arrays de las 3 dimensiones de la imagen
+        hist1 = image_actual[:,:,0].flatten()
+        #sumar los desfaces para el histograma concatenado
+        hist2 = image_actual[:,:,1].flatten() + 256
+        hist3 = image_actual[:,:,2].flatten() + 511
+        #union de los arrays desfasados
+        conc_hist=np.concatenate((hist1,hist2,hist3))
+        #Calculo del histograma
+        conc_hist = conc_hist.astype('float32')
+        conc_hist = cv2.calcHist([conc_hist],[0],None,[765],[float(np.min(conc_hist)),float(np.max(conc_hist))],conc_hist)
+        #Normalizacion
+        conc_hist = cv2.normalize(conc_hist,conc_hist,0,1,cv2.NORM_MINMAX)        
+
+    #Condicion para el espacio HSV
+    elif espacio == 'HSV':
+        #Conversion de la imagen al espacio de color
+        image_actual = rgb2hsv(image_actual)
+        image_actual = image_actual*255
+        #obtencion de los arrays de las 3 dimensiones de la imagen
+        hist1 = image_actual[:,:,0].flatten()
+        #sumar los desfaces para el histograma concatenado
+        hist2 = image_actual[:,:,1].flatten()+1+(1/255)
+        hist2 = hist2*255
+        hist3 = image_actual[:,:,2].flatten()+2+(1/255)
+        hist3 = hist3*255
+        conc_hist=np.concatenate((hist1,hist2,hist3))
+        #Calculo del histograma
+        conc_hist = conc_hist.astype('float32')
+        conc_hist = cv2.calcHist([conc_hist],[0],None,[765],[float(np.min(conc_hist)),float(np.max(conc_hist))],conc_hist)
+        #Normalizacion
+        conc_hist = cv2.normalize(conc_hist,conc_hist,0,1,cv2.NORM_MINMAX)
+
+    #Condicion para el espacio Lab
+    elif espacio == 'Lab':
+        #Conversion de la imagen al espacio de color
+        image_actual = rgb2lab(image_actual)
+        #sumar los desfaces para el histograma concatenado, dado que pueden existir valores negativos, estos son sumados como desface tambien
+        hist1 = image_actual[:,:,0].flatten()
+        hist2 = image_actual[:,:,1].flatten()
+        hist2 = hist2 + np.min(hist2)+ np.max(hist1)+1
+        hist3 = image_actual[:,:,2].flatten()
+        hist3 = hist3 + np.min(hist3)+ np.max(hist2)+1
+        conc_hist=np.concatenate((hist1,hist2,hist3))
+        #Calculo del histograma
+        conc_hist = conc_hist.astype('float32')
+        conc_hist = cv2.calcHist([conc_hist],[0],None,[765],[float(np.min(conc_hist)),float(np.max(conc_hist))],conc_hist)
+        #Normalizacion
+        conc_hist = cv2.normalize(conc_hist,conc_hist,0,1,cv2.NORM_MINMAX)
+
+
+
+    return conc_hist
+
+
+#histogramas concatenados de las imágenes de train para realizar la comparación
+esp_color = ['RGB','HSV','Lab']
+chist_Train = []
+for i in range(0,len(img_train)):
+    for j in range(0, len(esp_color)):
+        chist_Train.append(MyColorHist_Código1_Código2(img_train[i],esp_color[j]))
+
+chist_Train_RGB = [chist_Train[0],chist_Train[3]]
+chist_Train_HSV = [chist_Train[1],chist_Train[4]]
+chist_Train_Lab = [chist_Train[2],chist_Train[5]]
+
+#Carga de las imagenes de test
+df_Test = glob.glob(os.path.join('Test','*.png'))
+print(df_Test)
+img_Test = []
+for i in range(0,len(df_Test)):
+    img_Test.append(io.imread(df_Test[i]))
+
+#Obtención de los histogramas concatenados de las imágenes de test
+chist_Test_RGB = []
+chist_Test_HSV = []
+chist_Test_Lab = []
+for i in range(0,len(img_Test)):
+    for j in range(0, len(esp_color)):
+        if esp_color[j] == 'RGB':
+            chist_Test_RGB.append(MyColorHist_Código1_Código2(img_Test[i],esp_color[j]))
+        elif esp_color[j] == 'HSV':
+            chist_Test_HSV.append(MyColorHist_Código1_Código2(img_Test[i],esp_color[j]))            
+        elif esp_color[j] == 'Lab':
+            chist_Test_Lab.append(MyColorHist_Código1_Código2(img_Test[i],esp_color[j]))        
+
+def comparacion_histogramas(hist1,hist2,metodo):
+    comparacion = 0
+    if metodo == 'chisq':
+        comparacion = cv2.compareHist(hist1,hist2,cv2.HISTCMP_CHISQR)
+    elif metodo == 'inter':
+        comparacion = cv2.compareHist(hist1,hist2,cv2.HISTCMP_INTERSECT)
+
+    return comparacion
+
+#Comparaciones
+comp_RGB_Chisq = []
+comp_HSV_Chisq = []
+comp_Lab_Chisq = []
+comp_RGB_inter = []
+comp_HSV_inter = []
+comp_Lab_inter = []
+imagen = ['Imagen 1','Imagen 2','Imagen 3','Imagen 4','Imagen 5','Imagen 6','Imagen 7','Imagen 8','Imagen 9','Imagen 10']
+for i in range(0,len(chist_Test_RGB)):
+        comp_RGB_Chisq.append([imagen[i],comparacion_histogramas(chist_Test_RGB[i],chist_Train_RGB[0],'chisq'),comparacion_histogramas(chist_Test_RGB[i],chist_Train_RGB[1],'chisq')])
+        comp_HSV_Chisq.append([imagen[i],comparacion_histogramas(chist_Test_HSV[i],chist_Train_HSV[0],'chisq'),comparacion_histogramas(chist_Test_HSV[i],chist_Train_HSV[1],'chisq')])
+        comp_Lab_Chisq.append([imagen[i],comparacion_histogramas(chist_Test_Lab[i],chist_Train_Lab[0],'chisq'),comparacion_histogramas(chist_Test_Lab[i],chist_Train_Lab[1],'chisq')])
+        comp_RGB_inter.append([imagen[i],comparacion_histogramas(chist_Test_RGB[i],chist_Train_RGB[0],'inter'),comparacion_histogramas(chist_Test_RGB[i],chist_Train_RGB[1],'inter')])
+        comp_HSV_inter.append([imagen[i],comparacion_histogramas(chist_Test_HSV[i],chist_Train_HSV[0],'inter'),comparacion_histogramas(chist_Test_HSV[i],chist_Train_HSV[1],'inter')])
+        comp_Lab_inter.append([imagen[i],comparacion_histogramas(chist_Test_Lab[i],chist_Train_Lab[0],'inter'),comparacion_histogramas(chist_Test_Lab[i],chist_Train_Lab[1],'inter')])
+
+#Generacion de resultados
+Titulos = ['Imagen', 'Distancia a enfermo','Distancia a sano']
+t1 = ['RGB','y','chi-cuadrado']
+t2 = ['HSV','y','chi-cuadrado']
+t3 = ['Lab','y','chi-cuadrado']
+t4 = ['RGB','e','intersección']
+t5 = ['HSV','e','intersección']
+t6 = ['Lab','e','intersección']
+
+resultados = np.transpose(np.array([Titulos,t1,comp_RGB_Chisq,t2,comp_HSV_Chisq,t3,comp_Lab_Chisq,t4,comp_RGB_inter,t5,comp_HSV_inter,t6,comp_Lab_inter]))
+
+print(resultados)
+
+#Predicciones
+prediccion_RGB_Chisq = []
+prediccion_HSV_Chisq = []
+prediccion_Lab_Chisq = []
+prediccion_RGB_Inter = []
+prediccion_HSV_Inter = []
+prediccion_Lab_Inter = []
+
+#Se pone una etiqueta dependiendo de la distancia
+for i in range(0,len(chist_Test_RGB)):
+    if comp_RGB_Chisq[i][1]<comp_RGB_Chisq[i][2]:
+        prediccion_RGB_Chisq.append('Infectado')
+    else:
+        prediccion_RGB_Chisq.append('Sano')
+
+    if comp_HSV_Chisq[i][1]<comp_HSV_Chisq[i][2]:
+        prediccion_HSV_Chisq.append('Infectado')
+    else:
+        prediccion_HSV_Chisq.append('Sano')
+
+    if comp_Lab_Chisq[i][1]<comp_Lab_Chisq[i][2]:
+        prediccion_Lab_Chisq.append('Infectado')
+    else:
+        prediccion_Lab_Chisq.append('Sano')
+
+    if comp_RGB_inter[i][1]>comp_RGB_inter[i][2]:
+        prediccion_RGB_Inter.append('Infectado')
+    else:
+        prediccion_RGB_Inter.append('Sano')
+
+    if comp_HSV_inter[i][1]>comp_HSV_inter[i][2]:
+        prediccion_HSV_Inter.append('Infectado')
+    else:
+        prediccion_HSV_Inter.append('Sano')
+
+    if comp_Lab_inter[i][1]>comp_Lab_inter[i][2]:
+        prediccion_Lab_Inter.append('Infectado')
+    else:
+        prediccion_Lab_Inter.append('Sano')
+
+print('RGB - Chi cuadrado: ',prediccion_RGB_Chisq)
+print('HSV - Chi cuadrado: ',prediccion_HSV_Chisq)
+print('Lab - Chi cuadrado: ',prediccion_Lab_Chisq)
+print('RGB - Inter: ',prediccion_RGB_Inter)
+print('HSV - Inter: ',prediccion_HSV_Inter)
+print('Lab - Inter: ',prediccion_Lab_Inter)
+
+def confusion2(gr,pre):
+    ver_pos = 0
+    ver_neg = 0
+    fal_neg = 0
+    fal_pos = 0
+
+    for i in range(0,len(gr)):
+        if gr[i] == pre[i] and gr[i]=='Infectado':
+            ver_pos = ver_pos+1
+        elif gr[i] == pre[i] and gr[i]=='Sano':
+            ver_neg = ver_neg+1
+        elif gr[i] != pre[i] and gr[i]=='Infectado':
+            fal_neg = fal_neg+1
+        elif gr[i] != pre[i] and gr[i]=='Sano':
+            fal_pos = fal_pos+1
+
+    confusion_matrix = np.array([['','Positivo(infectado)','Negativo(Sano)'],['Positivo(pred_infec)',ver_pos,fal_pos],['Negativo(pred_sano)',fal_neg,ver_neg]])
+
+    precision = (ver_neg/(fal_neg+ver_neg))*100
+    cobertura = (ver_neg/(fal_pos+ver_neg))*100
+
+    return precision,cobertura,confusion_matrix
+
+
+
+ground = ['Infectado','Sano','Sano','Infectado','Infectado','Infectado','Sano','Infectado','Sano','Sano']
+conf_RGB_Chisq = confusion2(ground,prediccion_RGB_Chisq)
+conf_HSV_Chisq = confusion2(ground,prediccion_HSV_Chisq)
+conf_Lab_Chisq = confusion2(ground,prediccion_Lab_Chisq)
+conf_RGB_inter = confusion2(ground,prediccion_RGB_Inter)
+conf_HSV_inter = confusion2(ground,prediccion_HSV_Inter)
+conf_Lab_inter = confusion2(ground,prediccion_Lab_Inter)
+
+print(' METODO UTILIZADO   ','PRECISIÓN     ','COBERTURA  ')
+print('RGB - Chi cuadrado: ',conf_RGB_Chisq[0],'           ',conf_RGB_Chisq[1])
+print('HSV - Chi cuadrado: ',conf_HSV_Chisq[0],'           ',conf_HSV_Chisq[1])
+print('Lab - Chi cuadrado: ',conf_Lab_Chisq[0],'           ',conf_Lab_Chisq[1])
+print('RGB - Inter:        ',conf_RGB_inter[0],'           ',conf_RGB_inter[1])
+print('HSV - Inter:        ',np.round(conf_HSV_inter[0],2),'          ',conf_HSV_inter[1])
+print('Lab - Inter:        ',conf_Lab_inter[0],'           ',conf_Lab_inter[1])
